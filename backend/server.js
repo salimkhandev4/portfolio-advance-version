@@ -37,6 +37,11 @@ app.use(cors({
 app.use(express.json());       // parse JSON request bodies
 app.use(cookieParser());      // parse cookies
 
+// --- Default Route ---
+app.get("/", (req, res) => {
+    res.json({ message: "Hello from the backend" });
+});
+
 // --- Routes ---
 app.use("/api/users", userRoutes);       // login route
 app.use("/api/projects", projectRoutes); // CRUD project routes

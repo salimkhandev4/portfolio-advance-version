@@ -20,11 +20,15 @@ const loginUser = async (req, res) => {
         );
 
         // ✅ set cookie here
+        // Determine if we're in production (HTTPS) or development (HTTP)
+        const isProduction = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+        
         res.cookie("token", token, {
-            httpOnly: true,
-            secure: true, // set true in production (HTTPS)
-            sameSite: "None",
-            maxAge: 24 * 60 * 60 * 1000
+            httpOnly: true, // More secure - prevents client-side JavaScript access
+            secure: isProduction, // true in production (HTTPS), false in development
+            sameSite: isProduction ? "None" : "Lax", // "None" required for cross-site cookies in production
+            maxAge: 24 * 60 * 60 * 1000, // 24 hours
+            path: "/" // Available for all paths
         });
 
         return res.status(200).json({
@@ -37,7 +41,17 @@ const loginUser = async (req, res) => {
 };
 
 const logoutUser = (req, res) => {
-    res.clearCookie("token");
+    // Determine if we're in production (HTTPS) or development (HTTP)
+    const isProduction = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+    
+    // Clear cookie with same options as when it was set
+    res.clearCookie("token", {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "None" : "Lax",
+        path: "/"
+    });
+    
     res.status(200).json({ 
         success: true,
         message: "Logout successful" 
