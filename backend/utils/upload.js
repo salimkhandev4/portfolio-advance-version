@@ -50,10 +50,16 @@ const uploadImage = multer({
 });
 
 // Configure multer for multiple file types (videos and images)
+// Note: Vercel has a 4.5MB limit for request bodies in serverless functions
+// For larger files, consider uploading directly to Cloudinary from frontend
 const uploadMultiple = multer({
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit per file
+    fieldSize: 50 * 1024 * 1024, // 50MB for other fields
+    fields: 10, // Maximum number of non-file fields
+    fieldNameSize: 100, // Maximum field name size
+    files: 2 // Maximum number of files (video + thumbnail)
   },
   fileFilter: (req, file, cb) => {
     // Check if it's a video

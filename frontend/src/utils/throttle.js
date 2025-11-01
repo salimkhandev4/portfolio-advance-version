@@ -115,4 +115,5 @@ export function getDevicePerformance() {
     isMobile: isMobile,
     reducedMotion: isLowPerformanceGPU
   };
+  
 }

@@ -74,14 +74,73 @@ const getProject = async (req, res) => {
 };
 
 // Add project (protected)
+// Accepts JSON with Cloudinary URLs (frontend uploads directly to Cloudinary to bypass Vercel limits)
+// Similar to Next.js pattern: frontend uploads to Cloudinary, backend just saves URLs
 const addProject = async (req, res) => {
     try {
+        const contentType = req.headers["content-type"] || "";
+        
+        // JSON path: accept metadata after a direct-to-Cloudinary upload (bypasses Vercel limits)
+        if (contentType.includes("application/json")) {
+            // Parse array fields if they come as stringified JSON or arrays
+            if (req.body.features && typeof req.body.features === 'string') {
+                try {
+                    req.body.features = JSON.parse(req.body.features);
+                } catch (e) {
+                    req.body.features = [req.body.features];
+                }
+            }
+            if (req.body.tools && typeof req.body.tools === 'string') {
+                try {
+                    req.body.tools = JSON.parse(req.body.tools);
+                } catch (e) {
+                    req.body.tools = [req.body.tools];
+                }
+            }
+
+            // Handle array format (features[0], tools[0], etc.)
+            const features = [];
+            const tools = [];
+            Object.keys(req.body).forEach(key => {
+                if (key.startsWith('features[')) {
+                    const match = key.match(/\[(\d+)\]/);
+                    if (match) {
+                        const index = parseInt(match[1]);
+                        features[index] = req.body[key];
+                        delete req.body[key];
+                    }
+                } else if (key.startsWith('tools[')) {
+                    const match = key.match(/\[(\d+)\]/);
+                    if (match) {
+                        const index = parseInt(match[1]);
+                        tools[index] = req.body[key];
+                        delete req.body[key];
+                    }
+                }
+            });
+            if (features.length > 0) req.body.features = features.filter(Boolean);
+            if (tools.length > 0) req.body.tools = tools.filter(Boolean);
+
+            // Frontend already uploaded to Cloudinary, just save the URLs
+            // No file processing needed - this bypasses Vercel's 4.5MB limit
+            // Expecting: cloudinaryVideoUrl, cloudinaryVideoPublicId, cloudinaryThumbnailUrl, cloudinaryThumbnailPublicId
+            
+            const project = new Project(req.body);
+            await project.save();
+
+            return res.status(201).json({
+                success: true,
+                message: "Project added successfully",
+                project
+            });
+        }
+
+        // Multipart path (legacy fallback for local dev or small files only)
         // Parse FormData arrays (features, tools)
         if (req.body.features && typeof req.body.features === 'string') {
             try {
                 req.body.features = JSON.parse(req.body.features);
             } catch (e) {
-                // If not JSON, treat as single item array
                 req.body.features = [req.body.features];
             }
         }
@@ -93,28 +152,33 @@ const addProject = async (req, res) => {
             }
         }
 
-        // Handle array format from FormData (feature[0], feature[1], etc.)
+        // Handle array format from FormData
         const features = [];
         const tools = [];
         Object.keys(req.body).forEach(key => {
             if (key.startsWith('features[')) {
-                const index = parseInt(key.match(/\[(\d+)\]/)[1]);
-                features[index] = req.body[key];
-                delete req.body[key];
+                const match = key.match(/\[(\d+)\]/);
+                if (match) {
+                    const index = parseInt(match[1]);
+                    features[index] = req.body[key];
+                    delete req.body[key];
+                }
             } else if (key.startsWith('tools[')) {
-                const index = parseInt(key.match(/\[(\d+)\]/)[1]);
-                tools[index] = req.body[key];
-                delete req.body[key];
+                const match = key.match(/\[(\d+)\]/);
+                if (match) {
+                    const index = parseInt(match[1]);
+                    tools[index] = req.body[key];
+                    delete req.body[key];
+                }
             }
         });
         if (features.length > 0) req.body.features = features.filter(Boolean);
         if (tools.length > 0) req.body.tools = tools.filter(Boolean);
 
-        // Handle video upload
+        // Handle file uploads (fallback - not recommended for Vercel serverless)
         if (req.files && req.files['video'] && req.files['video'][0]) {
             try {
                 const videoFile = req.files['video'][0];
-                // Use buffer (memory storage) or path (disk storage)
                 const videoInput = videoFile.buffer || videoFile.path;
                 const videoResult = await uploadVideoToCloudinary(videoInput);
                 req.body.cloudinaryVideoUrl = videoResult.url;
@@ -129,11 +193,9 @@ const addProject = async (req, res) => {
             }
         }
 
-        // Handle thumbnail upload
         if (req.files && req.files['thumbnail'] && req.files['thumbnail'][0]) {
             try {
                 const thumbnailFile = req.files['thumbnail'][0];
-                // Use buffer (memory storage) or path (disk storage)
                 const thumbnailInput = thumbnailFile.buffer || thumbnailFile.path;
                 const thumbnailResult = await uploadImageToCloudinary(thumbnailInput);
                 req.body.cloudinaryThumbnailUrl = thumbnailResult.url;
@@ -151,7 +213,7 @@ const addProject = async (req, res) => {
         const project = new Project(req.body);
         await project.save();
 
-        res.status(201).json({
+        return res.status(201).json({
             success: true,
             message: "Project added successfully",
             project
@@ -238,17 +300,41 @@ const updateProject = async (req, res) => {
         if (features.length > 0) req.body.features = features.filter(Boolean);
         if (tools.length > 0) req.body.tools = tools.filter(Boolean);
 
-        // Handle video upload/delete
-        if (req.files && req.files['video'] && req.files['video'][0]) {
-            // Delete old video from Cloudinary if it exists
-            if (existingProject.cloudinaryVideoPublicId) {
-                await deleteVideoFromCloudinary(existingProject.cloudinaryVideoPublicId);
+        // Handle video - frontend uploads directly to Cloudinary, we just manage the URLs
+        if (req.body.cloudinaryVideoUrl && req.body.cloudinaryVideoPublicId) {
+            // Frontend already uploaded to Cloudinary
+            // Delete old video if it's different from the new one
+            if (existingProject.cloudinaryVideoPublicId && 
+                existingProject.cloudinaryVideoPublicId !== req.body.cloudinaryVideoPublicId) {
+                try {
+                    await deleteVideoFromCloudinary(existingProject.cloudinaryVideoPublicId);
+                } catch (deleteError) {
+                    console.warn("Error deleting old video from Cloudinary:", deleteError);
+                    // Continue - don't fail the update if deletion fails
+                }
             }
-
-            // Upload new video to Cloudinary
+        } else if (req.body.removeVideo === 'true' || req.body.cloudinaryVideoUrl === '') {
+            // If explicitly removing video
+            if (existingProject.cloudinaryVideoPublicId) {
+                try {
+                    await deleteVideoFromCloudinary(existingProject.cloudinaryVideoPublicId);
+                } catch (deleteError) {
+                    console.warn("Error deleting video from Cloudinary:", deleteError);
+                }
+                req.body.cloudinaryVideoUrl = '';
+                req.body.cloudinaryVideoPublicId = '';
+            }
+        } else if (req.files && req.files['video'] && req.files['video'][0]) {
+            // Legacy fallback: server-side upload (not recommended for Vercel)
+            if (existingProject.cloudinaryVideoPublicId) {
+                try {
+                    await deleteVideoFromCloudinary(existingProject.cloudinaryVideoPublicId);
+                } catch (deleteError) {
+                    console.warn("Error deleting old video:", deleteError);
+                }
+            }
             try {
                 const videoFile = req.files['video'][0];
-                // Use buffer (memory storage) or path (disk storage)
                 const videoInput = videoFile.buffer || videoFile.path;
                 const videoResult = await uploadVideoToCloudinary(videoInput);
                 req.body.cloudinaryVideoUrl = videoResult.url;
@@ -261,26 +347,43 @@ const updateProject = async (req, res) => {
                     error: uploadError.message
                 });
             }
-        } else if (req.body.removeVideo === 'true' || req.body.cloudinaryVideoUrl === '') {
-            // If explicitly removing video or setting to empty
-            if (existingProject.cloudinaryVideoPublicId) {
-                await deleteVideoFromCloudinary(existingProject.cloudinaryVideoPublicId);
-                req.body.cloudinaryVideoUrl = '';
-                req.body.cloudinaryVideoPublicId = '';
-            }
         }
 
-        // Handle thumbnail upload/delete
-        if (req.files && req.files['thumbnail'] && req.files['thumbnail'][0]) {
-            // Delete old thumbnail from Cloudinary if it exists
-            if (existingProject.cloudinaryThumbnailPublicId) {
-                await deleteImageFromCloudinary(existingProject.cloudinaryThumbnailPublicId);
+        // Handle thumbnail - frontend uploads directly to Cloudinary, we just manage the URLs
+        if (req.body.cloudinaryThumbnailUrl && req.body.cloudinaryThumbnailPublicId) {
+            // Frontend already uploaded to Cloudinary
+            // Delete old thumbnail if it's different from the new one
+            if (existingProject.cloudinaryThumbnailPublicId && 
+                existingProject.cloudinaryThumbnailPublicId !== req.body.cloudinaryThumbnailPublicId) {
+                try {
+                    await deleteImageFromCloudinary(existingProject.cloudinaryThumbnailPublicId);
+                } catch (deleteError) {
+                    console.warn("Error deleting old thumbnail from Cloudinary:", deleteError);
+                    // Continue - don't fail the update if deletion fails
+                }
             }
-
-            // Upload new thumbnail to Cloudinary
+        } else if (req.body.removeThumbnail === 'true' || req.body.cloudinaryThumbnailUrl === '') {
+            // If explicitly removing thumbnail
+            if (existingProject.cloudinaryThumbnailPublicId) {
+                try {
+                    await deleteImageFromCloudinary(existingProject.cloudinaryThumbnailPublicId);
+                } catch (deleteError) {
+                    console.warn("Error deleting thumbnail from Cloudinary:", deleteError);
+                }
+                req.body.cloudinaryThumbnailUrl = '';
+                req.body.cloudinaryThumbnailPublicId = '';
+            }
+        } else if (req.files && req.files['thumbnail'] && req.files['thumbnail'][0]) {
+            // Legacy fallback: server-side upload (not recommended for Vercel)
+            if (existingProject.cloudinaryThumbnailPublicId) {
+                try {
+                    await deleteImageFromCloudinary(existingProject.cloudinaryThumbnailPublicId);
+                } catch (deleteError) {
+                    console.warn("Error deleting old thumbnail:", deleteError);
+                }
+            }
             try {
                 const thumbnailFile = req.files['thumbnail'][0];
-                // Use buffer (memory storage) or path (disk storage)
                 const thumbnailInput = thumbnailFile.buffer || thumbnailFile.path;
                 const thumbnailResult = await uploadImageToCloudinary(thumbnailInput);
                 req.body.cloudinaryThumbnailUrl = thumbnailResult.url;
@@ -292,13 +395,6 @@ const updateProject = async (req, res) => {
                     message: "Error uploading thumbnail to Cloudinary",
                     error: uploadError.message
                 });
-            }
-        } else if (req.body.removeThumbnail === 'true' || req.body.cloudinaryThumbnailUrl === '') {
-            // If explicitly removing thumbnail or setting to empty
-            if (existingProject.cloudinaryThumbnailPublicId) {
-                await deleteImageFromCloudinary(existingProject.cloudinaryThumbnailPublicId);
-                req.body.cloudinaryThumbnailUrl = '';
-                req.body.cloudinaryThumbnailPublicId = '';
             }
         }
 

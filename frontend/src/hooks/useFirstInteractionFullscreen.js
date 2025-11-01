@@ -63,9 +63,13 @@ export const useFirstInteractionFullscreen = () => {
       if (!hasTriggered.current && !checkFullscreen()) {
         // Use setTimeout to ensure the click action fully completes first
         // This allows all click handlers, navigation, and UI updates to finish
-        // 50ms delay is enough for click handlers but still within user gesture context
+        // Note: The delay may cause the fullscreen API to require a direct user gesture
+        // This is expected behavior - fullscreen will trigger on next user interaction
         setTimeout(() => {
-          requestFullscreenHandler();
+          requestFullscreenHandler().catch(() => {
+            // Silently fail - fullscreen requires direct user gesture
+            // It will work on the next click/touch
+          });
         }, 50);
       }
     };

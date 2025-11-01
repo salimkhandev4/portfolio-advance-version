@@ -23,7 +23,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());       // parse JSON request bodies
+app.use(express.json({ limit: '50mb' }));       // parse JSON request bodies with increased limit
+app.use(express.urlencoded({ limit: '50mb', extended: true })); // parse URL-encoded bodies with increased limit
 app.use(cookieParser());      // parse cookies
 
 // --- Database Connection Middleware ---
@@ -48,13 +49,83 @@ const ensureDBConnection = async (req, res, next) => {
     next();
 };
 
-// Apply database connection middleware to all API routes
-app.use('/api', ensureDBConnection);
-
 // --- Default Route ---
 app.get("/", (req, res) => {
     res.json({ message: "Hello from the backend" });
 });
+
+// --- Cloudinary Config & Signature Endpoints (safe to expose, no DB needed) ---
+// Must be defined before DB middleware
+app.get("/api/cloudinary-config", (req, res) => {
+    res.json({
+        success: true,
+        cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
+        uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || ''
+    });
+});
+
+// Generate signed upload parameters for direct frontend uploads
+// This endpoint doesn't need DB connection, defined before DB middleware
+app.post("/api/cloudinary-signature", express.json(), (req, res) => {
+    try {
+        const { folder, resource_type = 'auto' } = req.body;
+        
+        if (!process.env.CLOUDINARY_API_SECRET || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_CLOUD_NAME) {
+            return res.status(500).json({
+                success: false,
+                message: 'Cloudinary credentials not configured on server'
+            });
+        }
+        
+        const cloudinary = require("./config/cloudinary");
+        
+        const timestamp = Math.round(new Date().getTime() / 1000);
+        
+        // Build params object for signature - must match exactly what frontend sends
+        // IMPORTANT: resource_type is NOT included in signature (Cloudinary excludes it)
+        // See: https://cloudinary.com/documentation/signatures
+        // Parameters to exclude from signature: file, cloud_name, resource_type, api_key
+        const params = {};
+        
+        // Add folder only if provided and not empty
+        if (folder && folder.trim()) {
+            params.folder = folder.trim();
+        }
+        
+        // DO NOT include resource_type in signature - Cloudinary excludes it
+        // resource_type will be sent separately in the upload request
+        
+        // Timestamp must always be included
+        params.timestamp = timestamp;
+
+        // Create signature using Cloudinary's utility
+        // This automatically sorts parameters alphabetically
+        const signature = cloudinary.utils.api_sign_request(
+            params,
+            process.env.CLOUDINARY_API_SECRET
+        );
+
+        res.json({
+            success: true,
+            signature,
+            timestamp,
+            folder: params.folder || '',
+            resource_type: resource_type || 'auto',
+            api_key: process.env.CLOUDINARY_API_KEY,
+            cloud_name: process.env.CLOUDINARY_CLOUD_NAME
+        });
+    } catch (error) {
+        console.error('Error generating Cloudinary signature:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate upload signature',
+            error: error.message
+        });
+    }
+});
+
+// Apply database connection middleware to all API routes
+app.use('/api', ensureDBConnection);
 
 // --- Routes ---
 app.use("/api/users", userRoutes);       // login route

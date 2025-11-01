@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 const ProjectsContext = createContext();
 
@@ -23,14 +23,27 @@ export const ProjectsProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch projects from backend
-  const fetchProjects = async () => {
+  // Fetch projects from backend - memoized to prevent recreating on every render
+  const fetchProjects = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       
       // Try the main API endpoint
-      let response = await fetch(`${API_BASE_URL}/projects`);
+      let response;
+      try {
+        response = await fetch(`${API_BASE_URL}/projects`);
+      } catch (fetchError) {
+        // Handle connection errors (server not running, network issues)
+        if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('Connection refused')) {
+          const backendUrl = BASE_URL;
+          throw new Error(
+            `Cannot connect to backend server at ${backendUrl}. ` +
+            `Please ensure the backend is running or check your VITE_API_BASE_URL environment variable.`
+          );
+        }
+        throw fetchError;
+      }
       
       // If 404, try without /api prefix (some deployments might not use it)
       if (!response.ok && response.status === 404) {
@@ -59,12 +72,12 @@ export const ProjectsProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // Empty deps - API_BASE_URL and BASE_URL are constants
 
   // Fetch projects on mount
   useEffect(() => {
     fetchProjects();
-  }, []);
+  }, [fetchProjects]);
 
   // Get single project by ID
   const getProjectById = async (id) => {
@@ -88,10 +101,10 @@ export const ProjectsProvider = ({ children }) => {
     }
   };
 
-  // Refresh projects
-  const refreshProjects = () => {
+  // Refresh projects - memoized to prevent infinite loops
+  const refreshProjects = useCallback(() => {
     fetchProjects();
-  };
+  }, [fetchProjects]); // Depends on fetchProjects, which is now stable
 
   const value = {
     projects,

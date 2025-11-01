@@ -17,6 +17,7 @@ import swal from 'sweetalert2';
 import { useAuth } from '../context/AuthContext';
 import { useProjects } from '../context/ProjectsContext';
 import { useSkills } from '../context/SkillsContext';
+import { uploadImageToCloudinary, uploadVideoToCloudinary } from '../utils/cloudinaryUpload';
 
 // Helper to ensure HTTPS in production
 const ensureHttps = (url) => {
@@ -133,9 +134,11 @@ const ProjectsView = () => {
   const [existingVideoUrl, setExistingVideoUrl] = useState(null);
   const [existingThumbnailUrl, setExistingThumbnailUrl] = useState(null);
 
+  // Only fetch on mount, not on every render
   useEffect(() => {
     refreshProjects();
-  }, [refreshProjects]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - only run once on mount
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -307,43 +310,79 @@ const ProjectsView = () => {
     setUploading(true);
 
     try {
-      const submitData = new FormData();
+      // Upload files directly to Cloudinary first
+      let cloudinaryVideoUrl = existingVideoUrl;
+      let cloudinaryVideoPublicId = formData.cloudinaryVideoPublicId;
       
       if (videoFile) {
-        submitData.append('video', videoFile);
+        swal.fire({
+          title: 'Uploading video...',
+          text: 'Please wait while we upload your video to Cloudinary',
+          allowOutsideClick: false,
+          didOpen: () => {
+            swal.showLoading();
+          }
+        });
+        
+        const videoResult = await uploadVideoToCloudinary(videoFile, 'project-videos');
+        cloudinaryVideoUrl = videoResult.url;
+        cloudinaryVideoPublicId = videoResult.public_id;
       }
+
+      let cloudinaryThumbnailUrl = existingThumbnailUrl;
+      let cloudinaryThumbnailPublicId = formData.cloudinaryThumbnailPublicId;
 
       if (thumbnailFile) {
-        submitData.append('thumbnail', thumbnailFile);
-      }
-
-      Object.keys(formData).forEach(key => {
-        if (key !== 'removeVideo' && key !== 'removeThumbnail') {
-          if (Array.isArray(formData[key])) {
-            formData[key].forEach((item, index) => {
-              submitData.append(`${key}[${index}]`, item);
-            });
-          } else {
-            submitData.append(key, formData[key]);
+        swal.fire({
+          title: 'Uploading thumbnail...',
+          text: 'Please wait while we upload your thumbnail',
+          allowOutsideClick: false,
+          didOpen: () => {
+            swal.showLoading();
           }
+        });
+        
+        const thumbnailResult = await uploadImageToCloudinary(thumbnailFile, 'project-thumbnails');
+        cloudinaryThumbnailUrl = thumbnailResult.url;
+        cloudinaryThumbnailPublicId = thumbnailResult.public_id;
+      }
+
+      // Prepare data to send to backend (JSON with Cloudinary URLs - bypasses Vercel limits)
+      // Similar to Next.js pattern: frontend uploads to Cloudinary, backend just saves URLs
+      const submitData = {
+        ...formData,
+        // Send Cloudinary URLs (secure_url equivalent) and public_ids
+        cloudinaryVideoUrl: cloudinaryVideoUrl || '',
+        cloudinaryVideoPublicId: cloudinaryVideoPublicId || '',
+        cloudinaryThumbnailUrl: cloudinaryThumbnailUrl || '',
+        cloudinaryThumbnailPublicId: cloudinaryThumbnailPublicId || ''
+      };
+
+      // Handle removal flags for updates
+      if (isEditing) {
+        if (!videoFile && !existingVideoUrl) {
+          // User wants to remove video
+          submitData.removeVideo = 'true';
+          submitData.cloudinaryVideoUrl = '';
+          submitData.cloudinaryVideoPublicId = '';
         }
-      });
-
-      if (isEditing && !videoFile && !existingVideoUrl) {
-        submitData.append('removeVideo', 'true');
+        
+        if (!thumbnailFile && !existingThumbnailUrl) {
+          // User wants to remove thumbnail
+          submitData.removeThumbnail = 'true';
+          submitData.cloudinaryThumbnailUrl = '';
+          submitData.cloudinaryThumbnailPublicId = '';
+        }
       }
 
-      if (isEditing && !thumbnailFile && !existingThumbnailUrl) {
-        submitData.append('removeThumbnail', 'true');
-      }
-
+      // Send JSON to backend (no files - all uploaded directly to Cloudinary)
       if (isEditing) {
         await axios.put(
           `${API_BASE_URL}/projects/${isEditing}`,
           submitData,
           {
             headers: {
-              'Content-Type': 'multipart/form-data',
+              'Content-Type': 'application/json',
             },
           }
         );
@@ -359,7 +398,7 @@ const ProjectsView = () => {
           submitData,
           {
             headers: {
-              'Content-Type': 'multipart/form-data',
+              'Content-Type': 'application/json',
             },
           }
         );
@@ -373,9 +412,10 @@ const ProjectsView = () => {
       refreshProjects();
       cancelEdit();
     } catch (error) {
+      console.error('Submission error:', error);
       swal.fire({
         title: 'Error!',
-        text: error.response?.data?.message || error.response?.data?.error || 'Something went wrong',
+        text: error.response?.data?.message || error.response?.data?.error || error.message || 'Something went wrong',
         icon: 'error',
       });
     } finally {
