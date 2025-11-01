@@ -25,14 +25,25 @@ app.use(cors({
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
         
-        if (allowedOrigins.includes(origin)) {
+        // Check if origin is in allowed list (case-insensitive and with/without trailing slash)
+        const normalizedOrigin = origin.toLowerCase().replace(/\/$/, '');
+        const isAllowed = allowedOrigins.some(allowed => 
+            allowed.toLowerCase().replace(/\/$/, '') === normalizedOrigin
+        );
+        
+        if (isAllowed) {
             callback(null, true);
         } else {
-            // Reject origin not in allowed list
-            callback(new Error('Not allowed by CORS'));
+            console.error(`CORS blocked origin: ${origin}`);
+            callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
         }
     },
-    credentials: true // Allow cookies to be sent
+    credentials: true, // Allow cookies to be sent
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 app.use(express.json());       // parse JSON request bodies
 app.use(cookieParser());      // parse cookies
