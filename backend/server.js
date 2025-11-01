@@ -56,6 +56,8 @@ app.get("/", (req, res) => {
 
 // --- Cloudinary Config & Signature Endpoints (safe to expose, no DB needed) ---
 // Must be defined before DB middleware
+
+// Health check for Cloudinary endpoints
 app.get("/api/cloudinary-config", (req, res) => {
     res.json({
         success: true,
@@ -70,10 +72,16 @@ app.post("/api/cloudinary-signature", express.json(), (req, res) => {
     try {
         const { folder, resource_type = 'auto' } = req.body;
         
+        // Check if Cloudinary credentials are configured
         if (!process.env.CLOUDINARY_API_SECRET || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_CLOUD_NAME) {
+            console.error('Cloudinary credentials missing:', {
+                hasSecret: !!process.env.CLOUDINARY_API_SECRET,
+                hasKey: !!process.env.CLOUDINARY_API_KEY,
+                hasCloudName: !!process.env.CLOUDINARY_CLOUD_NAME
+            });
             return res.status(500).json({
                 success: false,
-                message: 'Cloudinary credentials not configured on server'
+                message: 'Cloudinary credentials not configured on server. Please set CLOUDINARY_API_SECRET, CLOUDINARY_API_KEY, and CLOUDINARY_CLOUD_NAME environment variables.'
             });
         }
         

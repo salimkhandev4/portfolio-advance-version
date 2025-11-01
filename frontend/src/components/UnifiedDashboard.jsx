@@ -413,9 +413,24 @@ const ProjectsView = () => {
       cancelEdit();
     } catch (error) {
       console.error('Submission error:', error);
+      
+      // Provide more helpful error messages
+      let errorMessage = 'Something went wrong';
+      if (error.message) {
+        errorMessage = error.message;
+        // Check for Cloudinary-specific errors
+        if (error.message.includes('upload preset') || error.message.includes('Cloudinary')) {
+          errorMessage = `Cloudinary upload failed: ${error.message}. Please check your Cloudinary configuration or contact support.`;
+        }
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+      
       swal.fire({
         title: 'Error!',
-        text: error.response?.data?.message || error.response?.data?.error || error.message || 'Something went wrong',
+        text: errorMessage,
         icon: 'error',
       });
     } finally {
