@@ -12,30 +12,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- Middleware ---
-// Configure CORS to allow credentials (cookies)
-// Allow both localhost (development) and production frontend URLs
-const allowedOrigins = [
-    "http://localhost:5173", // Local development
-    "https://portfolio-advance-version-frontend.vercel.app", // Production frontend
-    process.env.FRONTEND_URL // Allow environment variable override
-].filter(Boolean); // Remove any undefined values
-
-// CORS configuration for all routes
+// Configure CORS to allow all origins
 const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        
-        if (allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            // Reject origin not in allowed list
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: true, // Allow all origins
     credentials: true, // Allow cookies to be sent
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'], // Allow all methods
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'], // Allow necessary headers including multipart/form-data
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'], // Allow necessary headers
     exposedHeaders: ['Content-Type'], // Expose headers to client
     maxAge: 86400 // Cache preflight requests for 24 hours
 };
