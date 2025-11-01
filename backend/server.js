@@ -20,7 +20,8 @@ const allowedOrigins = [
     process.env.FRONTEND_URL // Allow environment variable override
 ].filter(Boolean); // Remove any undefined values
 
-app.use(cors({
+// CORS configuration for all routes
+const corsOptions = {
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
@@ -32,8 +33,17 @@ app.use(cors({
             callback(new Error('Not allowed by CORS'));
         }
     },
-    credentials: true // Allow cookies to be sent
-}));
+    credentials: true, // Allow cookies to be sent
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'], // Allow all methods
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'], // Allow necessary headers including multipart/form-data
+    exposedHeaders: ['Content-Type'], // Expose headers to client
+    maxAge: 86400 // Cache preflight requests for 24 hours
+};
+
+app.use(cors(corsOptions));
+
+// Explicitly handle OPTIONS preflight requests
+app.options('*', cors(corsOptions));
 app.use(express.json());       // parse JSON request bodies
 app.use(cookieParser());      // parse cookies
 
