@@ -140,6 +140,9 @@ app.use("/api/users", userRoutes);       // login route
 app.use("/api/projects", projectRoutes); // CRUD project routes
 app.use("/api/skills", skillRoutes);    // CRUD skill routes
 
+// Export app for Vercel serverless (always export)
+module.exports = app;
+
 // --- Connect to MongoDB for Local Development ---
 if (!process.env.VERCEL) {
     const startServer = async () => {
@@ -155,7 +158,4 @@ if (!process.env.VERCEL) {
         }
     };
     startServer();
-} else {
-    // Export app for Vercel serverless
-    module.exports = app;
 }
